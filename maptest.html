@@ -106,7 +106,6 @@ input[type=range]{flex:1;min-width:0;accent-color:var(--ink);height:24px}
 .settings .inline{display:flex;gap:5px;align-items:center}
 .settings input[type=number]{width:52px;border:1.5px solid var(--line);padding:3px 4px;height:26px;font-size:12.5px}
 .settings input[type=color]{width:36px;height:24px;border:1px solid var(--line);padding:0}
-.gkey{display:none}
 .folder button{border:1.5px solid var(--ink);background:#fff;padding:3px 8px;white-space:nowrap;font-size:12.5px}
 .folder span{font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .btnrow{flex:none;margin-top:10px;display:flex;gap:6px}
@@ -1082,19 +1081,25 @@ $('#mmOn').onchange=e=>{state.minimap.on=e.target.checked;requestRedraw();};
 $('#mmCorner').onchange=e=>{state.minimap.corner=e.target.value;requestRedraw();};
 $('#mmSize').oninput=e=>{state.minimap.size=clamp(+e.target.value||25,10,60);requestRedraw();};
 
-function showKey(on){ document.querySelectorAll('.gkey').forEach(el=>el.style.display=on?'':'none'); layout(); }
-$('#source').onchange=async e=>{
-  const v=e.target.value;
-  showKey(v==='google');
-  if(v==='google'&&!(await initGoogle())){ e.target.value='esri'; return; }
+// Google 키는 항상 보이게 두고, 한 번 입력하면 기억
+try{ $('#gkey').value=localStorage.getItem('mapzoom.gkey')||''; }catch(e){}
+async function useSource(v){
+  if(v==='google'){
+    if(!(await initGoogle())){ $('#gkey').focus(); return; }   // 키가 없거나 틀리면 지도는 Esri 유지
+  }
   state.source=v; requestRedraw();
-};
+}
+$('#source').onchange=e=>useSource(e.target.value);
 $('#gkey').addEventListener('change',async()=>{
-  if(await initGoogle()){ $('#source').value='google'; state.source='google'; requestRedraw(); }
+  try{ localStorage.setItem('mapzoom.gkey',$('#gkey').value.trim()); }catch(e){}
+  state.gSession=null;
+  if($('#source').value==='google') await useSource('google');
+  else if($('#gkey').value.trim()) setStatus('키를 저장했습니다. 지도 소스에서 Google 위성을 고르면 적용됩니다.');
 });
 async function initGoogle(){
   const key=$('#gkey').value.trim();
-  if(!key){ setStatus('Google 위성을 쓰려면 Map Tiles API 키를 입력하세요.'); return false; }
+  if(!key){ setStatus('Google 위성을 쓰려면 아래 Google 키 칸에 Map Tiles API 키를 입력하세요. (그전까지 Esri 지도로 표시)'); return false; }
+  if(state.gSession&&state.gKey===key) return true;
   try{
     const r=await fetch(`https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(key)}`,{
       method:'POST',headers:{'Content-Type':'application/json'},
