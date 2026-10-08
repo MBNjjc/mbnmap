@@ -1,0 +1,1276 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MBN 지도 출력기-제작: 미술부 주재천</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Nanum+Gothic:wght@400;700;800&family=Nanum+Myeongjo:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --ink:#3f4246; --ink-soft:#7a7e84; --line:#c9ccd1; --paper:#fff; --panel:#f3f4f6;
+  --sea:#2f5fa8; --focus:#ffd23f;
+  font-family:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  color:var(--ink); background:var(--paper);
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;padding:14px 22px 14px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--sea);outline-offset:2px}
+
+/* 상단 */
+header{display:flex;flex-direction:column;align-items:center;gap:4px;flex:none}
+.search{display:flex;align-items:center;gap:12px;position:relative}
+.search input{width:min(560px,52vw);height:40px;border:4px solid var(--ink);padding:0 12px;font-size:16px}
+.search .go{border:0;background:none;font-size:22px;font-weight:600;padding:0 4px}
+.results{position:absolute;top:44px;left:0;width:min(560px,52vw);background:#fff;border:2px solid var(--ink);
+  list-style:none;margin:0;padding:0;z-index:20;display:none;max-height:260px;overflow:auto}
+.results li{padding:7px 12px;cursor:pointer;font-size:13px;border-top:1px solid var(--line)}
+.results li:first-child{border-top:0}
+.results li:hover{background:var(--panel)}
+.focus-name{font-size:12px;color:var(--ink-soft);min-height:16px}
+.bar{display:flex;align-items:center;gap:30px;flex-wrap:wrap;justify-content:center}
+.ratios{display:flex;gap:4px}
+.ratio{display:flex;align-items:center;gap:7px;border:0;background:none;padding:4px 10px;font-size:22px;
+  color:var(--ink-soft);border-bottom:3px solid transparent}
+.ratio .ico{border:3px solid currentColor;display:inline-block}
+.ratio[aria-pressed="true"]{color:var(--ink);border-bottom-color:var(--ink)}
+.frames{display:flex;align-items:center;gap:8px;font-size:22px}
+.frames.hold{font-size:16px}
+.frames.hold input{width:70px;height:32px;font-size:18px}
+.total{font-size:13px;color:var(--ink-soft)}
+.frames input{width:84px;height:38px;border:2px solid var(--ink);text-align:right;padding:0 8px;font-size:22px}
+.textbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:center;font-size:12.5px;
+  border-top:1px solid var(--line);padding-top:5px;margin-top:2px}
+.textbar label{display:flex;align-items:center;gap:4px;white-space:nowrap}
+.textbar input,.textbar select{border:1.5px solid var(--line);padding:2px 5px;height:26px;font-size:12.5px}
+.textbar input[type=number]{width:54px}
+.textbar input[type=color]{width:32px;padding:0 1px}
+.textbar input[type=checkbox]{height:auto}
+.textbar #tText{width:170px}
+.textbar button{border:1.5px solid var(--ink);background:#fff;height:28px;padding:0 10px;font-size:13px}
+.textbar #tPlace{font-weight:600}
+.textbar #tPlace[aria-pressed="true"]{background:var(--ink);color:#fff}
+.textbar #tDel:disabled{opacity:.4;cursor:default}
+.tstate{font-size:11.5px;color:var(--ink-soft);min-width:130px}
+.mapwrap canvas.placing{cursor:crosshair}
+.credits{flex:none;text-align:center;font-size:7.5pt;color:var(--ink-soft);margin-top:-2px}
+
+/* 본문 */
+.stage{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) 150px minmax(0,1fr) 300px;gap:18px}
+.col{display:flex;flex-direction:column;min-height:0;min-width:0}
+.mapwrap{flex:1 1 0;min-height:0;position:relative}
+.mapwrap canvas{position:absolute;inset:0;margin:auto;background:#0d1420;display:block;cursor:grab;touch-action:none}
+.mapwrap canvas.dragging{cursor:grabbing}
+.zoomrow{display:flex;align-items:center;gap:6px;margin-top:8px;flex:none}
+.zbtn{width:32px;height:32px;border-radius:50%;border:3px solid var(--ink);background:#fff;font-size:20px;
+  line-height:1;display:grid;place-items:center;padding:0;font-weight:600;flex:none}
+input[type=range]{flex:1;min-width:0;accent-color:var(--ink);height:24px}
+.col h2{font-size:22px;font-weight:500;margin:2px 0 0;text-align:center;flex:none}
+.zval{font-size:12px;color:var(--ink-soft);text-align:center;flex:none;min-height:24px;display:flex;justify-content:center;align-items:center;gap:8px}
+.zval input{width:66px;border:1.5px solid var(--line);padding:2px 4px;font-size:12px;text-align:right;color:var(--ink)}
+.zval input:focus{border-color:var(--ink)}
+
+/* 가운데: 시작 위치 + 이동 방향 */
+.mid{display:flex;flex-direction:column;gap:16px;min-height:0;overflow:auto;padding-top:6px}
+.seg{display:flex;flex-direction:column;border:2px solid var(--ink)}
+.seg button{border:0;border-top:1px solid var(--line);background:#fff;padding:7px 6px;font-size:13px;text-align:center}
+.seg button:first-child{border-top:0}
+.seg button[aria-pressed="true"]{background:var(--ink);color:#fff}
+.mid > :first-child{margin-top:auto}
+.sync{margin-bottom:44px;display:flex;flex-direction:column;gap:5px}
+.sync button{border:1.5px solid var(--ink);background:#fff;padding:6px 4px;font-size:12.5px}
+.mid h3{font-size:13px;font-weight:600;margin:0 0 6px}
+.quick{display:flex;gap:5px}
+.quick button{flex:1;border:1.5px solid var(--ink);background:#fff;padding:6px 2px;font-size:13px;font-weight:600}
+.quick button:active{background:var(--panel)}
+.startq{display:flex;flex-direction:column;gap:5px}
+.startq input{border:1.5px solid var(--ink);padding:6px 8px;font-size:13px;width:100%}
+.startq button,.startq .reset{border:1.5px solid var(--ink);background:#fff;padding:5px;font-size:13px}
+.startq .reset{border-color:var(--line);color:var(--ink-soft)}
+.dirinfo{font-size:11.5px;color:var(--ink-soft);margin:5px 0 0;line-height:1.4;min-height:32px}
+.note{font-size:11px;color:var(--ink-soft);margin:0;line-height:1.4}
+
+/* 오른쪽 */
+.side .mapwrap canvas{cursor:default}
+.prevrow{display:flex;align-items:center;gap:8px;margin-top:8px;flex:none}
+.play{border:2px solid var(--ink);background:#fff;width:34px;height:26px;padding:0;font-size:12px;flex:none}
+.frameno{text-align:center;font-size:11px;color:var(--ink-soft);flex:none}
+.settings{flex:none;margin-top:8px;border-top:2px solid var(--ink);padding-top:8px;display:grid;
+  grid-template-columns:auto minmax(0,1fr);gap:5px 10px;align-items:center;font-size:12.5px}
+.settings select,.settings input[type=text],.settings input[type=password]{border:1.5px solid var(--line);padding:3px 6px;width:100%;font-size:12.5px;height:26px}
+.settings .inline{display:flex;gap:5px;align-items:center}
+.settings input[type=number]{width:52px;border:1.5px solid var(--line);padding:3px 4px;height:26px;font-size:12.5px}
+.settings input[type=color]{width:36px;height:24px;border:1px solid var(--line);padding:0}
+.gkey{display:none}
+.folder button{border:1.5px solid var(--ink);background:#fff;padding:3px 8px;white-space:nowrap;font-size:12.5px}
+.folder span{font-size:11.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.btnrow{flex:none;margin-top:10px;display:flex;gap:6px}
+.export{flex:1;min-width:0;height:38px;background:var(--ink);color:#fff;border:2px solid #222;font-size:15px;font-weight:600;white-space:nowrap;padding:0 6px}
+.export.send{flex:0 0 64px;background:var(--sea);border-color:#1f437a}
+.export.alt{background:#fff;color:var(--ink);border-color:var(--ink)}
+.export:disabled{opacity:.5;cursor:wait}
+.progress{height:5px;background:var(--panel);margin-top:6px;display:none;flex:none}
+.progress div{height:100%;width:0;background:var(--sea)}
+.statusrow{display:flex;gap:8px;align-items:center;justify-content:center;flex:none;min-height:18px;margin-top:4px}
+.status{font-size:11.5px;color:var(--ink-soft);text-align:center}
+.cancel{display:none;border:1.5px solid var(--ink);background:#fff;padding:1px 10px;font-size:12px}
+
+@media (max-width:1100px){
+  body{overflow:auto;height:auto}
+  .stage{grid-template-columns:1fr}
+  .mapwrap{flex:none;height:60vh}
+  .mid{flex-direction:row;flex-wrap:wrap;justify-content:center;overflow:visible}
+  .sync{margin:0}
+  .mid > :first-child{margin-top:0}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="search">
+    <input id="q" type="text" placeholder="초점이 될 장소 (예: 여주시청)" autocomplete="off">
+    <button class="go" id="goSearch">위치검색</button>
+    <ul class="results" id="results"></ul>
+  </div>
+  <div class="focus-name" id="focusName"></div>
+  <div class="bar">
+    <div class="ratios" id="ratios"></div>
+    <label class="frames" title="애니메이션(줌/이동) 프레임 수"><input id="frames" type="number" min="2" max="9999" value="30"> 프레임</label>
+    <label class="frames hold" title="애니메이션 앞에 시작 프레임 그대로 멈춰 있는 프레임 수 (30 = 30fps 기준 1초)">앞 정지 <input id="hold" type="number" min="0" max="9999" value="30"></label>
+    <span class="total" id="totalFrames"></span>
+  </div>
+  <div class="textbar">
+    <button id="tPlace" aria-pressed="false" title="누른 뒤 시작/마지막 프레임 지도를 클릭">T 텍스트</button>
+    <input id="tText" type="text" placeholder="텍스트 내용" autocomplete="off">
+    <select id="tFont">
+      <option id="tFontDefault" value="Sandoll 격동고딕2 TTF 05 Bd">Sandoll 격동고딕2 TTF 05 Bd</option>
+      <optgroup label="기타">
+        <option value="Nanum Gothic">나눔고딕</option>
+        <option value="Nanum Myeongjo">나눔명조</option>
+        <option value="Malgun Gothic">맑은 고딕</option>
+        <option value="Arial">Arial</option>
+      </optgroup>
+    </select>
+    <button id="tFontLoad" title="PC에 설치된 격동고딕·격동굴림을 굵기별로 목록에 추가">격동 폰트 불러오기</button>
+    <label><input type="checkbox" id="tBold">굵게</label>
+    <label>크기 <input type="number" id="tSize" min="4" max="1000" step="2" value="72" title="1080 기준 px"></label>
+    <label>색 <input type="color" id="tColor" value="#ffffff"></label>
+    <label>외곽선 <input type="color" id="tStroke" value="#000000"><input type="number" id="tStrokeW" min="0" max="100" step="0.5" value="4" title="외곽선 굵기 (1080 기준 px)"></label>
+    <label>투명도 <input type="number" id="tAlpha" min="0" max="1" step="0.05" value="1"></label>
+    <label title="전체 프레임 대비 사라지고/나타나는 길이">페이드 <input type="number" id="tFade" min="0" max="50" step="1" value="30">% <span id="tFadeInfo" style="color:var(--ink-soft)"></span></label>
+    <button id="tDel" disabled>삭제</button>
+    <span class="tstate" id="tState"></span>
+  </div>
+</header>
+
+<main class="stage">
+  <section class="col ed" data-key="start">
+    <div class="mapwrap"><canvas></canvas></div>
+    <div class="zoomrow">
+      <button class="zbtn" data-d="-0.25" aria-label="줌 아웃">−</button>
+      <input type="range" min="0" max="17" step="0.01" aria-label="시작 프레임 줌">
+      <button class="zbtn" data-d="0.25" aria-label="줌 인">+</button>
+    </div>
+    <h2>시작 프레임</h2>
+    <div class="zval"><label>줌 <input type="number" class="zin" min="0" max="17" step="0.01"></label><span class="znote"></span></div>
+  </section>
+
+  <section class="mid">
+    <div class="quick">
+      <button id="resetAll" title="처음 검색했을 때의 상태로 되돌리기">초기화</button>
+      <button id="syncStart" title="시작 프레임의 위치와 줌을 마지막 프레임과 똑같이">동기화</button>
+    </div>
+    <div class="startq">
+      <h3>시작 위치</h3>
+      <input id="startQ" type="text" placeholder="예: 미국" autocomplete="off">
+      <button id="startGo">시작 프레임 이동</button>
+      <button class="reset" id="startReset">초점으로 되돌리기</button>
+    </div>
+    <div>
+      <h3>이동 방향</h3>
+      <div class="seg" id="dirs">
+        <button data-dir="east">동쪽으로 →</button>
+        <button data-dir="auto" aria-pressed="true">가까운 쪽</button>
+        <button data-dir="west">← 서쪽으로</button>
+      </div>
+      <p class="dirinfo" id="dirInfo"></p>
+    </div>
+    <div>
+      <h3>이동 방식</h3>
+      <div class="seg" id="paths">
+        <button data-path="straight" aria-pressed="true">직선 (튕김 없음)</button>
+        <button data-path="fly">비행 (빠졌다 들어감)</button>
+      </div>
+    </div>
+    <div class="sync">
+      <h3>줌 맞추기</h3>
+      <button id="syncToStart" title="마지막 프레임 줌을 시작 프레임에 적용">← 마지막 줌 적용</button>
+      <button id="syncToEnd" title="시작 프레임 줌을 마지막 프레임에 적용">시작 줌 적용 →</button>
+    </div>
+  </section>
+
+  <section class="col ed" data-key="end">
+    <div class="mapwrap"><canvas></canvas></div>
+    <div class="zoomrow">
+      <button class="zbtn" data-d="-0.25" aria-label="줌 아웃">−</button>
+      <input type="range" min="0" max="17" step="0.01" aria-label="마지막 프레임 줌">
+      <button class="zbtn" data-d="0.25" aria-label="줌 인">+</button>
+    </div>
+    <h2>마지막 프레임</h2>
+    <div class="zval"><label>줌 <input type="number" class="zin" min="0" max="17" step="0.01"></label><span class="znote"></span></div>
+  </section>
+
+  <section class="col side">
+    <div class="mapwrap"><canvas id="prev"></canvas></div>
+    <div class="prevrow">
+      <button class="play" id="play" aria-label="재생">▶</button>
+      <input type="range" id="prevT" min="0" max="1" step="0.001" value="0.5" aria-label="미리보기 위치">
+    </div>
+    <h2 style="text-align:center;font-size:22px;font-weight:500;margin:2px 0 0">미리보기</h2>
+    <div class="frameno" id="frameNo"></div>
+
+    <div class="settings">
+      <span>지도 소스</span>
+      <select id="source">
+        <option value="esri">Esri 위성 (키 불필요)</option>
+        <option value="google">Google 위성 (API 키)</option>
+      </select>
+      <span class="gkey">Google 키</span>
+      <input class="gkey" type="password" id="gkey" placeholder="Map Tiles API 키">
+      <span>움직임</span>
+      <select id="easing">
+        <option value="inout">천천히 시작·끝</option>
+        <option value="linear">일정한 속도</option>
+        <option value="out">빠르게 시작</option>
+        <option value="in">천천히 시작</option>
+      </select>
+      <span>해상도 (짧은 변)</span>
+      <select id="res">
+        <option value="720">720</option>
+        <option value="1080" selected>1080</option>
+        <option value="1440">1440</option>
+        <option value="2160">2160 (4K)</option>
+      </select>
+      <span>국경선</span>
+      <span class="inline">
+        <input type="checkbox" id="bOn" checked aria-label="국경선 표시">
+        <input type="color" id="bColor" value="#ffffff" aria-label="색">
+        <input type="number" id="bWidth" min="0.5" max="10" step="0.5" value="2" title="굵기 (1080 기준 px)">
+        <input type="number" id="bAlpha" min="0" max="1" step="0.05" value="0.85" title="불투명도">
+      </span>
+      <span>미니맵</span>
+      <span class="inline">
+        <input type="checkbox" id="mmOn" checked aria-label="미니맵 표시">
+        <select id="mmCorner" style="width:auto;flex:1">
+          <option value="bl">왼쪽 아래</option>
+          <option value="br">오른쪽 아래</option>
+          <option value="tr">오른쪽 위</option>
+          <option value="tl">왼쪽 위</option>
+        </select>
+        <input type="number" id="mmSize" min="10" max="60" step="1" value="25" title="크기: 짧은 변 대비 미니맵 높이 %">
+      </span>
+      <span>출처 표기</span>
+      <span class="inline"><input type="checkbox" id="credit" aria-label="출처 표기 넣기"></span>
+      <span>파일 이름</span>
+      <input type="text" id="prefix" value="seoul_">
+      <span>저장 폴더</span>
+      <span class="inline folder"><button id="pickDir">선택</button><span id="dirName">선택 안 함</span></span>
+    </div>
+
+    <div class="btnrow">
+      <button class="export" id="export">시퀀스 출력</button>
+      <button class="export alt" id="still" title="마지막 프레임을 한 장으로 저장">스틸 출력</button>
+      <button class="export send" id="send" title="출력 폴더를 선택해 transfer.ini에 기록한 뒤 maptransfer.exe 실행">전송</button>
+    </div>
+    <div class="progress" id="progress"><div></div></div>
+    <div class="statusrow"><span class="status" id="status"></span><button class="cancel" id="cancel">중단</button></div>
+  </section>
+</main>
+<footer class="credits">제작&amp;문의: MBN 미술부 주재천</footer>
+
+<script>
+/* ============ 설정 ============ */
+const REF = 1000;   // 줌 기준: 짧은 변 1000px
+const MAXCACHE = 3500;
+const RHO = 1.4;    // 이동 중 줌아웃 정도 (클수록 크게 빠졌다 들어옴)
+const ASPECTS = {'14:9':[14,9],'4:3':[4,3],'1:1':[1,1],'9:14':[9,14],'3:4':[3,4]};
+const SOURCES = {
+  esri:{maxZ:18, credit:'Imagery © Esri, Maxar, Earthstar Geographics',
+    url:(z,x,y)=>`https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`},
+  google:{maxZ:20, credit:'Imagery © Google',
+    url:(z,x,y)=>`https://tile.googleapis.com/v1/2dtiles/${z}/${x}/${y}?session=${encodeURIComponent(state.gSession)}&key=${encodeURIComponent(state.gKey)}`}
+};
+
+const state = {
+  aspect:'4:3',
+  focus:{lat:37.5665, lon:126.978, name:'서울', cc:'kr'},
+  keys:{ start:{zoom:4.6, ox:0, oy:0}, end:{zoom:10.8, ox:0, oy:0} },
+  dir:'auto', path:'straight',
+  texts:[], sel:null, placing:false, fade:0.3,   // fade: 전체 길이 대비 비율 (0.3 = 30%)
+  mm:{start:null, end:null},
+  source:'esri', gKey:'', gSession:null,
+  border:{on:true, color:'#ffffff', width:2, opacity:0.85},
+  credit:false, easing:'inout', shortSide:1080,
+  minimap:{on:true, corner:'bl', size:25},
+  folder:null, exporting:false, cancel:false
+};
+
+const $ = s=>document.querySelector(s);
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+
+/* ============ 투영 / 화면 계산 ============ */
+function project(lat,lon){
+  const s=clamp(Math.sin(lat*Math.PI/180),-0.9999,0.9999);
+  return {x:(lon+180)/360, y:0.5-Math.log((1+s)/(1-s))/(4*Math.PI)};
+}
+function refDims(){ const [aw,ah]=ASPECTS[state.aspect], m=Math.min(aw,ah); return [REF*aw/m, REF*ah/m]; }
+
+// 편집 화면: 초점 기준 (줌하면 초점을 중심으로 확대)
+function viewFor(key,W,H){
+  const z=key.zoom+Math.log2(Math.min(W,H)/REF), ws=256*2**z;
+  const f=project(state.focus.lat,state.focus.lon);
+  const fx=W/2+key.ox*W, fy=H/2+key.oy*H;
+  return {z, ws, W, H, fx, fy, left:f.x*ws-fx, top:f.y*ws-fy};
+}
+// 키프레임 → 세계 좌표의 화면 중심(cx,cy)과 보이는 폭(w, 세계=1)
+function centerOf(key){
+  const [Wr,Hr]=refDims(), ws=256*2**key.zoom, f=project(state.focus.lat,state.focus.lon);
+  return {cx:f.x-key.ox*Wr/ws, cy:f.y-key.oy*Hr/ws, w:Wr/ws};
+}
+function viewFromCenter(c,W,H){
+  const ws=W/c.w, hn=H/ws;
+  const cy=hn<1?clamp(c.cy,hn/2,1-hn/2):0.5;
+  return {z:Math.log2(ws/256), ws, W, H, left:c.cx*ws-W/2, top:cy*ws-H/2};
+}
+
+/* ============ 이동 경로 ============ */
+// 시작→끝 경도 차이를 선택한 방향으로 정함 (세계 폭 = 1)
+function travelDx(){
+  const a=centerOf(state.keys.start), b=centerOf(state.keys.end);
+  let dx=b.cx-a.cx; dx-=Math.round(dx);           // 가까운 쪽 (-0.5~0.5)
+  if(Math.abs(dx)<1e-6) return 0;
+  if(state.dir==='east' && dx<0) dx+=1;
+  if(state.dir==='west' && dx>0) dx-=1;
+  return dx;
+}
+// van Wijk & Nuij 부드러운 줌/이동 (d3.interpolateZoom 방식)
+function makePath(){
+  const a=centerOf(state.keys.start), b=centerOf(state.keys.end);
+  const ux0=a.cx, uy0=a.cy, w0=a.w, dx=travelDx(), dy=b.cy-a.cy, w1=b.w;
+  if(state.path==='straight'){
+    // 줌은 일정한 속도(로그 스케일), 이동은 화면상 일정한 속도 → 줌아웃 없이 곧게
+    const L=Math.log(w1/w0);
+    return t=>{
+      const w=w0*Math.exp(L*t);
+      const u=Math.abs(L)<1e-6?t:(w-w0)/(w1-w0);
+      return {cx:ux0+u*dx, cy:uy0+u*dy, w};
+    };
+  }
+  const d2=dx*dx+dy*dy, r2=RHO*RHO, r4=r2*r2;
+  if(d2<1e-14){
+    const S=Math.log(w1/w0)/RHO;
+    return t=>({cx:ux0+t*dx, cy:uy0+t*dy, w:w0*Math.exp(RHO*t*S)});
+  }
+  const d1=Math.sqrt(d2);
+  const b0=(w1*w1-w0*w0+r4*d2)/(2*w0*r2*d1), b1=(w1*w1-w0*w0-r4*d2)/(2*w1*r2*d1);
+  const q0=Math.log(Math.sqrt(b0*b0+1)-b0), q1=Math.log(Math.sqrt(b1*b1+1)-b1);
+  const S=(q1-q0)/RHO, ch0=Math.cosh(q0);
+  return t=>{
+    const s=t*S, u=w0/(r2*d1)*(ch0*Math.tanh(RHO*s+q0)-Math.sinh(q0));
+    return {cx:ux0+u*dx, cy:uy0+u*dy, w:w0*ch0/Math.cosh(RHO*s+q0)};
+  };
+}
+const EASE={
+  linear:t=>t,
+  inout:t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2,
+  out:t=>1-Math.pow(1-t,3),
+  in:t=>t*t*t
+};
+function frameView(path,t,W,H){ return viewFromCenter(path(EASE[state.easing](t)),W,H); }
+
+/* ============ 타일 ============ */
+const cache=new Map();
+const tkey=(z,x,y)=>`${state.source}/${z}/${x}/${y}`;
+function getTile(z,x,y){
+  const k=tkey(z,x,y);
+  let t=cache.get(k);
+  if(t){ cache.delete(k); cache.set(k,t); return t; }
+  if(state.source==='google' && !state.gSession) return null;
+  const img=new Image(); img.crossOrigin='anonymous';
+  t={img, ok:false};
+  t.promise=new Promise(res=>{
+    img.onload=()=>{t.ok=true;requestRedraw();res(t)};
+    img.onerror=()=>res(t);
+  });
+  img.src=SOURCES[state.source].url(z,x,y);
+  cache.set(k,t);
+  while(cache.size>MAXCACHE) cache.delete(cache.keys().next().value);
+  return t;
+}
+function tilesForView(v){
+  const tz=clamp(Math.ceil(v.z-0.2),0,SOURCES[state.source].maxZ);
+  const n=2**tz, ts=v.ws/n;
+  const x0=Math.floor(v.left/ts), x1=Math.floor((v.left+v.W-1)/ts);
+  const y0=Math.max(0,Math.floor(v.top/ts)), y1=Math.min(n-1,Math.floor((v.top+v.H-1)/ts));
+  const list=[];
+  for(let y=y0;y<=y1;y++) for(let x=x0;x<=x1;x++)
+    list.push({wx:((x%n)+n)%n, y, px:x*ts-v.left, py:y*ts-v.top});
+  return {tz,ts,list};
+}
+function drawMap(ctx,v){
+  ctx.fillStyle='#0d1420'; ctx.fillRect(0,0,v.W,v.H);
+  ctx.imageSmoothingEnabled=true; ctx.imageSmoothingQuality='high';
+  const {tz,ts,list}=tilesForView(v);
+  for(const t of list){
+    const px=Math.floor(t.px), py=Math.floor(t.py);
+    const sw=Math.ceil(t.px+ts)-px, sh=Math.ceil(t.py+ts)-py;
+    const tile=getTile(tz,t.wx,t.y);
+    if(tile&&tile.ok){ ctx.drawImage(tile.img,px,py,sw,sh); continue; }
+    for(let k=1;k<=8&&tz-k>=0;k++){
+      const f=2**k, a=cache.get(tkey(tz-k,Math.floor(t.wx/f),Math.floor(t.y/f)));
+      if(a&&a.ok){ const sub=256/f; ctx.drawImage(a.img,(t.wx%f)*sub,(t.y%f)*sub,sub,sub,px,py,sw,sh); break; }
+    }
+  }
+}
+async function waitTiles(v){
+  const {tz,list}=tilesForView(v);
+  const ps=list.map(t=>{const tile=getTile(tz,t.wx,t.y);return tile?tile.promise:Promise.resolve();});
+  await Promise.race([Promise.all(ps),sleep(25000)]);
+}
+
+/* ============ 국경선 (Natural Earth 1:10m, 국가 사이 경계만) ============ */
+let borders=null;
+async function loadBorders(){
+  try{
+    const topo=await (await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-10m.json')).json();
+    const mesh=topojson.mesh(topo,topo.objects.countries,(a,b)=>a!==b);
+    const out=[];
+    for(const line of mesh.coordinates){
+      let cur=[], prevX=null;
+      for(const [lon,lat] of line){
+        const p=project(lat,lon);
+        if(prevX!==null&&Math.abs(p.x-prevX)>0.5){ if(cur.length>2) out.push(cur); cur=[]; }
+        cur.push(p.x,p.y); prevX=p.x;
+      }
+      if(cur.length>2) out.push(cur);
+    }
+    borders=out.map(a=>{
+      let minx=1,miny=1,maxx=0,maxy=0;
+      for(let i=0;i<a.length;i+=2){minx=Math.min(minx,a[i]);maxx=Math.max(maxx,a[i]);miny=Math.min(miny,a[i+1]);maxy=Math.max(maxy,a[i+1]);}
+      return {pts:new Float64Array(a),minx,miny,maxx,maxy};
+    });
+    requestRedraw();
+  }catch(e){ setStatus('국경선 데이터를 불러오지 못했습니다. 인터넷 연결을 확인하세요.'); }
+}
+function drawBorders(ctx,v,scale){
+  const b=state.border;
+  if(!borders||!b.on) return;
+  const k=scale??Math.min(v.W,v.H)/1080;
+  ctx.save();
+  ctx.strokeStyle=b.color; ctx.globalAlpha=b.opacity;
+  ctx.lineWidth=Math.max(0.5,b.width*k); ctx.lineJoin='round'; ctx.lineCap='round';
+  ctx.beginPath();
+  const ws=v.ws, w0=Math.floor(v.left/ws), w1=Math.floor((v.left+v.W)/ws);
+  for(let w=w0;w<=w1;w++){
+    const ox=w*ws-v.left, oy=-v.top;
+    for(const L of borders){
+      if(L.maxx*ws+ox<0||L.minx*ws+ox>v.W||L.maxy*ws+oy<0||L.miny*ws+oy>v.H) continue;
+      const p=L.pts;
+      ctx.moveTo(p[0]*ws+ox,p[1]*ws+oy);
+      for(let i=2;i<p.length;i+=2) ctx.lineTo(p[i]*ws+ox,p[i+1]*ws+oy);
+    }
+  }
+  ctx.stroke(); ctx.restore();
+}
+function drawCredit(ctx,v){
+  if(!state.credit) return;
+  const s=Math.min(v.W,v.H)/1080;
+  ctx.save();
+  ctx.font=`${Math.round(18*s)}px "IBM Plex Sans KR", sans-serif`;
+  const left=state.minimap.on&&state.minimap.corner==='br';   // 미니맵과 겹치면 반대쪽으로
+  ctx.textAlign=left?'left':'right'; ctx.textBaseline='bottom';
+  ctx.fillStyle='rgba(255,255,255,.75)'; ctx.shadowColor='rgba(0,0,0,.6)'; ctx.shadowBlur=4*s;
+  ctx.fillText(SOURCES[state.source].credit,left?16*s:v.W-16*s,v.H-12*s);
+  ctx.restore();
+}
+
+/* ============ 미니맵 ============ */
+// 흰 바탕(80%) + 회색 육지. 대륙 단위로 고정하고 빨간 박스만 변함.
+// 단, 초점이 남한/북한이면: 첫 프레임 동아시아 → 마지막 프레임 남한/북한이 꽉 차게
+const MM_ASPECT=4/3;   // 미니맵 가로:세로
+const mmCanvas=document.createElement('canvas');
+const REGIONS=[            // b: 보여줄 범위 [서, 남, 동, 북], m: 판정 범위(없으면 b). 위에서부터 먼저 맞는 것
+  {name:'동남아시아',   b:[92,-11,142,28], m:[92,-11,142,22]},
+  {name:'남아시아',     b:[60,5,98,38]},
+  {name:'중동',         b:[34,12,63,42]},
+  {name:'중앙아시아',   b:[45,35,90,55]},
+  {name:'동아시아',     b:[73,18,150,54]},
+  {name:'유럽',         b:[-25,34,45,71]},
+  {name:'아프리카',     b:[-20,-36,55,38]},
+  {name:'북아시아',     b:[40,45,180,78]},
+  {name:'북아메리카',   b:[-170,7,-50,72]},
+  {name:'남아메리카',   b:[-82,-56,-34,13]},
+  {name:'오세아니아',   b:[110,-48,180,-8]}
+];
+const KOREA={ kr:[124.5,33.0,131.0,38.7], kp:[124.1,37.6,130.8,43.1] };
+function boxView(b,pad){
+  const a=project(b[3],b[0]), c=project(b[1],b[2]);
+  let bw=c.x-a.x; if(bw<0) bw+=1;
+  const bh=c.y-a.y;
+  return {cx:a.x+bw/2, cy:(a.y+c.y)/2, w:Math.max(bw*(1+pad),bh*(1+pad)*MM_ASPECT)};
+}
+function inBox(lon,lat,b){ return lat>=b[1]&&lat<=b[3]&&(b[0]<=b[2]?lon>=b[0]&&lon<=b[2]:lon>=b[0]||lon<=b[2]); }
+function minimapKeys(){
+  const {lat,lon,cc}=state.focus;
+  const reg=REGIONS.find(r=>inBox(lon,lat,r.m||r.b));
+  const f=project(lat,lon);
+  const start=reg?boxView(reg.b,0.04):{cx:f.x,cy:f.y,w:0.17};
+  const end=(cc==='kr'||cc==='kp')?boxView(KOREA[cc],0.12):null;
+  return {start,end};
+}
+function minimapRect(W,H){
+  const s=Math.min(W,H), h=Math.round(s*state.minimap.size/100), w=Math.round(h*MM_ASPECT);
+  const m=Math.round(s*0.035), c=state.minimap.corner;
+  return {x:c[1]==='l'?m:W-m-w, y:c[0]==='t'?m:H-m-h, w, h};
+}
+function minimapView(v,t){
+  const r=minimapRect(v.W,v.H), auto=minimapKeys();
+  // 직접 조절한 값이 있으면 우선. 마지막 프레임 값이 없으면 시작과 같게(한국/북한은 자동 확대)
+  const a=state.mm.start||auto.start, b=state.mm.end||auto.end||a;
+  let c=a;
+  if(b!==a){
+    const e=EASE[state.easing](t), w=a.w*Math.exp(Math.log(b.w/a.w)*e);
+    const u=Math.abs(b.w-a.w)<1e-9?e:(w-a.w)/(b.w-a.w);
+    let dx=b.cx-a.cx; dx-=Math.round(dx);
+    c={cx:a.cx+dx*u, cy:a.cy+(b.cy-a.cy)*u, w};
+  }
+  return {r, mv:viewFromCenter(c,r.w,r.h)};
+}
+
+let landRings=null;
+async function loadLand(){
+  try{
+    const topo=await (await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-50m.json')).json();
+    const fc=topojson.feature(topo,topo.objects.land);
+    const geoms=(fc.features?fc.features.map(f=>f.geometry):[fc.geometry]).filter(Boolean);
+    const rings=[];
+    for(const g of geoms){
+      const polys=g.type==='Polygon'?[g.coordinates]:g.coordinates;
+      for(const poly of polys) for(const ring of poly){
+        const a=new Float64Array(ring.length*2);
+        let off=0, prev=null, minx=9,miny=9,maxx=-9,maxy=-9;
+        ring.forEach(([lon,lat],i)=>{
+          const p=project(lat,lon);
+          if(prev!==null){ if(p.x+off-prev>0.5) off-=1; else if(p.x+off-prev<-0.5) off+=1; }
+          const x=p.x+off; prev=x;
+          a[i*2]=x; a[i*2+1]=p.y;
+          minx=Math.min(minx,x);maxx=Math.max(maxx,x);miny=Math.min(miny,p.y);maxy=Math.max(maxy,p.y);
+        });
+        rings.push({pts:a,minx,miny,maxx,maxy});
+      }
+    }
+    landRings=rings; requestRedraw();
+  }catch(e){}
+}
+function drawLand(m,v){
+  if(!landRings) return;
+  m.fillStyle='#a3a6aa'; m.beginPath();
+  const ws=v.ws, w0=Math.floor(v.left/ws)-1, w1=Math.floor((v.left+v.W)/ws)+1;
+  for(let w=w0;w<=w1;w++){
+    const ox=w*ws-v.left, oy=-v.top;
+    for(const R of landRings){
+      if(R.maxx*ws+ox<0||R.minx*ws+ox>v.W||R.maxy*ws+oy<0||R.miny*ws+oy>v.H) continue;
+      const p=R.pts;
+      m.moveTo(p[0]*ws+ox,p[1]*ws+oy);
+      for(let i=2;i<p.length;i+=2) m.lineTo(p[i]*ws+ox,p[i+1]*ws+oy);
+      m.closePath();
+    }
+  }
+  m.fill('evenodd');
+}
+function drawMinimap(ctx,v,t){
+  if(!state.minimap.on) return;
+  const {r,mv}=minimapView(v,t), k=Math.min(v.W,v.H)/1080;
+  mmCanvas.width=r.w; mmCanvas.height=r.h;
+  const m=mmCanvas.getContext('2d');
+  m.fillStyle='rgba(255,255,255,0.8)'; m.fillRect(0,0,r.w,r.h);
+  drawLand(m,mv);
+  // 빨간 박스: 지금 큰 화면에 보이는 영역 (너무 작으면 보이도록 최소 크기 보장)
+  const cx=(v.left+v.W/2)/v.ws, cy=(v.top+v.H/2)/v.ws;
+  const mcx=(mv.left+mv.W/2)/mv.ws;
+  let dx=cx-mcx; dx-=Math.round(dx);
+  const px=mv.W/2+dx*mv.ws, py=cy*mv.ws-mv.top;
+  let bw=v.W/v.ws*mv.ws, bh=v.H/v.ws*mv.ws;
+  const minS=r.h*0.12;
+  if(bw<minS||bh<minS){ const sc=Math.max(minS/bw,minS/bh); bw*=sc; bh*=sc; }
+  m.strokeStyle='#ff2b2b'; m.lineWidth=Math.max(1.5,2.5*k);
+  m.strokeRect(px-bw/2,py-bh/2,bw,bh);
+  ctx.drawImage(mmCanvas,r.x,r.y);
+  const lw=Math.max(1,1.5*k);
+  ctx.save(); ctx.strokeStyle='rgba(0,0,0,.3)'; ctx.lineWidth=lw;
+  ctx.strokeRect(r.x+lw/2,r.y+lw/2,r.w-lw,r.h-lw); ctx.restore();
+}
+function renderFrame(ctx,v,t,mode=null){
+  drawMap(ctx,v); drawBorders(ctx,v);
+  const boxes=drawTexts(ctx,v,t,mode);
+  drawMinimap(ctx,v,t); drawCredit(ctx,v);
+  return boxes;
+}
+async function waitFrame(v,t){
+  await waitTiles(v);
+}
+
+/* ============ 그리기 ============ */
+const editors=[...document.querySelectorAll('section.ed')].map(sec=>({
+  key:sec.dataset.key, sec, canvas:sec.querySelector('canvas'),
+  slider:sec.querySelector('input[type=range]'), zin:sec.querySelector('.zin'), znote:sec.querySelector('.znote')
+}));
+const prev=$('#prev');
+let queued=false;
+function requestRedraw(){ if(!queued){queued=true;requestAnimationFrame(redraw);} }
+
+function redraw(){
+  queued=false;
+  const d=devicePixelRatio||1;
+  for(const ed of editors){
+    const c=ed.canvas, ctx=c.getContext('2d'), k=state.keys[ed.key];
+    const v=viewFor(k,c.width,c.height);
+    ed.boxes=renderFrame(ctx,v,ed.key==='start'?0:1,ed.key);
+    const sb=ed.boxes.find(b=>b.id===state.sel);
+    if(sb){
+      ctx.save(); ctx.strokeStyle='#ffd23f'; ctx.lineWidth=1.5*d; ctx.setLineDash([5*d,4*d]);
+      ctx.strokeRect(sb.x0-3*d,sb.y0-3*d,sb.x1-sb.x0+6*d,sb.y1-sb.y0+6*d); ctx.restore();
+    }
+    // 초점 표시 (출력엔 안 들어감). 화면 밖이면 가장자리에 화살표
+    ctx.save(); ctx.strokeStyle=ctx.fillStyle='#ffd23f'; ctx.lineWidth=2*d;
+    const inside=v.fx>=0&&v.fx<=v.W&&v.fy>=0&&v.fy<=v.H;
+    if(inside){
+      ctx.beginPath(); ctx.arc(v.fx,v.fy,9*d,0,Math.PI*2);
+      ctx.moveTo(v.fx-16*d,v.fy);ctx.lineTo(v.fx-5*d,v.fy);ctx.moveTo(v.fx+5*d,v.fy);ctx.lineTo(v.fx+16*d,v.fy);
+      ctx.moveTo(v.fx,v.fy-16*d);ctx.lineTo(v.fx,v.fy-5*d);ctx.moveTo(v.fx,v.fy+5*d);ctx.lineTo(v.fx,v.fy+16*d);
+      ctx.stroke();
+    }else{
+      const ang=Math.atan2(v.fy-v.H/2,v.fx-v.W/2);
+      const ex=clamp(v.fx,18*d,v.W-18*d), ey=clamp(v.fy,18*d,v.H-18*d);
+      ctx.translate(ex,ey); ctx.rotate(ang); ctx.beginPath();
+      ctx.moveTo(10*d,0); ctx.lineTo(-8*d,-7*d); ctx.lineTo(-8*d,7*d); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+    ed.slider.value=k.zoom;
+    if(document.activeElement!==ed.zin) ed.zin.value=k.zoom.toFixed(2);
+    ed.znote.textContent=inside?'':'초점은 화면 밖';
+  }
+  const path=makePath(), total=totalFrames(), fi=Math.round(+$('#prevT').value*(total-1)), t=frameT(fi);
+  renderFrame(prev.getContext('2d'),frameView(path,t,prev.width,prev.height),t);
+  $('#frameNo').textContent=`프레임 ${String(fi+1).padStart(4,'0')} / ${String(total).padStart(4,'0')}`+(fi<getHold()?' · 정지':'');
+  updateDirInfo();
+}
+
+function updateDirInfo(){
+  const dx=travelDx(), deg=Math.abs(dx*360);
+  let txt;
+  if(deg<0.05) txt='시작과 끝의 경도가 같아 방향 차이가 없습니다.';
+  else txt=`${dx>0?'동쪽':'서쪽'}으로 경도 ${deg<10?deg.toFixed(1):Math.round(deg)}° 이동`+
+    (state.dir==='auto'?' (가까운 쪽)':'');
+  $('#dirInfo').textContent=txt;
+}
+
+function fitCanvas(canvas){
+  const wrap=canvas.parentElement, [aw,ah]=ASPECTS[state.aspect];
+  const maxW=wrap.clientWidth, maxH=wrap.clientHeight;
+  let w=maxW, h=w*ah/aw;
+  if(h>maxH){h=maxH;w=h*aw/ah;}
+  w=Math.max(40,Math.floor(w)); h=Math.max(40,Math.floor(h));
+  const d=devicePixelRatio||1;
+  canvas.style.width=w+'px'; canvas.style.height=h+'px';
+  canvas.width=Math.round(w*d); canvas.height=Math.round(h*d);
+}
+function layout(){ for(const ed of editors) fitCanvas(ed.canvas); fitCanvas(prev); requestRedraw(); }
+
+/* ============ 비율 ============ */
+const ratioWrap=$('#ratios');
+for(const name of Object.keys(ASPECTS)){
+  const [aw,ah]=ASPECTS[name], s=17/Math.max(aw,ah);
+  const b=document.createElement('button');
+  b.className='ratio'; b.dataset.r=name;
+  b.innerHTML=`<span class="ico" style="width:${Math.round(aw*s+6)}px;height:${Math.round(ah*s+6)}px"></span>${name}`;
+  b.onclick=()=>{state.aspect=name;syncRatio();layout();};
+  ratioWrap.appendChild(b);
+}
+function syncRatio(){ ratioWrap.querySelectorAll('.ratio').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===state.aspect)); }
+
+/* ============ 텍스트 ============ */
+const FPS=30;   // 페이드 시간 계산 기준 (미리보기 재생과 동일)
+let textSeq=1;
+const scratch=document.createElement('canvas');
+function textFont(tx,px){ return `${tx.bold?700:400} ${px}px "${tx.font}", "IBM Plex Sans KR", sans-serif`; }
+// 페이드 길이 = 전체 프레임의 일정 비율 (기본 1/5 → 30프레임이면 6프레임, 90프레임이면 18프레임)
+function fadeAlpha(frame,t){
+  const f=state.fade, d=frame==='start'?t:1-t;
+  if(f<=0) return d<1e-9?1:0;
+  return 1-clamp(d/f,0,1);
+}
+function updateFadeInfo(){ $('#tFadeInfo').textContent=`(${Math.round(getFrames()*state.fade)}프레임)`; }
+// mode: 'start'|'end' → 편집 화면(해당 프레임 텍스트만, 페이드 없음), null → 애니메이션
+function drawTexts(ctx,v,t,mode){
+  const boxes=[], k=Math.min(v.W,v.H)/1080, vw=v.W/v.ws;
+  for(const tx of state.texts){
+    if(!tx.text) continue;
+    let a=tx.opacity;
+    if(mode){ if(tx.frame!==mode) continue; }
+    else{ a*=fadeAlpha(tx.frame,t); if(a<=0.002) continue; }
+    const sc=centerOf(state.keys[tx.frame]).w/vw;          // 지도 줌과 같은 비율로 확대/축소
+    const px=tx.size*k*sc;
+    if(px<0.5||px>Math.min(v.W,v.H)*30) continue;
+    let x=tx.x*v.ws-v.left; x-=Math.round((x-v.W/2)/v.ws)*v.ws;
+    const y=tx.y*v.ws-v.top;
+    const font=textFont(tx,px), sw=tx.strokeW*k*sc;
+    ctx.font=font;
+    const hw=ctx.measureText(tx.text).width/2+sw, hh=px*0.62+sw;
+    const box={id:tx.id,x0:x-hw,y0:y-hh,x1:x+hw,y1:y+hh};
+    boxes.push(box);
+    // 화면과 겹치는 부분만 그림 (밖으로 나간 부분은 잘림)
+    const ix0=Math.max(0,Math.floor(box.x0)), iy0=Math.max(0,Math.floor(box.y0));
+    const ix1=Math.min(v.W,Math.ceil(box.x1)), iy1=Math.min(v.H,Math.ceil(box.y1));
+    if(ix1<=ix0||iy1<=iy0) continue;
+    scratch.width=ix1-ix0; scratch.height=iy1-iy0;
+    const s=scratch.getContext('2d');
+    s.translate(-ix0,-iy0);
+    s.font=font; s.textAlign='center'; s.textBaseline='middle';
+    if(sw>0){ s.lineJoin='round'; s.strokeStyle=tx.stroke; s.lineWidth=sw*2; s.strokeText(tx.text,x,y); }
+    s.fillStyle=tx.color; s.fillText(tx.text,x,y);
+    ctx.save(); ctx.globalAlpha=a; ctx.drawImage(scratch,ix0,iy0); ctx.restore();
+  }
+  return boxes;
+}
+async function loadTextFonts(){
+  await Promise.all(state.texts.map(tx=>ensureLocalFont(tx.font)));
+  await Promise.all(state.texts.map(tx=>document.fonts.load(textFont(tx,40),tx.text||'가A').catch(()=>{})));
+}
+
+/* ---- 설치된 격동고딕/격동굴림 (Local Font Access API) ---- */
+// 상용 폰트라 웹에서 받을 수 없어 PC에 설치된 폰트를 읽어 씀. 굵기별로 각각 목록에 추가.
+const DEFAULT_FONT='Sandoll 격동고딕2 TTF 05 Bd';
+const localFonts=new Map();   // fullName → {data, loaded:Promise|null}
+const GD_RE=/격동|gyeok\s*dong/i;
+async function scanLocalFonts(){
+  if(!window.queryLocalFonts) return false;
+  let list;
+  try{ list=await queryLocalFonts(); }catch(e){ return false; }
+  const gd=list.filter(f=>GD_RE.test(`${f.fullName} ${f.family} ${f.postscriptName}`))
+               .sort((a,b)=>a.fullName.localeCompare(b.fullName,'ko',{numeric:true}));
+  const sel=$('#tFont'), keep=sel.value;
+  sel.querySelectorAll('optgroup.gd').forEach(g=>g.remove());
+  const groups={};
+  for(const f of gd){
+    if(localFonts.has(f.fullName)) continue;
+    localFonts.set(f.fullName,{data:f,loaded:null});
+    const label=/굴림|gulim/i.test(f.fullName+f.family)?'격동굴림':'격동고딕';
+    if(!groups[label]){
+      const g=document.createElement('optgroup'); g.label=label; g.className='gd';
+      groups[label]=g;
+    }
+    const o=document.createElement('option'); o.value=f.fullName; o.textContent=f.fullName;
+    groups[label].appendChild(o);
+  }
+  const first=sel.querySelector('optgroup');
+  for(const label of ['격동고딕','격동굴림']) if(groups[label]) sel.insertBefore(groups[label],first);
+  // 기본값 자리표시 옵션은 실제 목록에 있으면 제거
+  const ph=$('#tFontDefault');
+  if(ph&&localFonts.has(DEFAULT_FONT)) ph.remove();
+  sel.value=[...sel.options].some(o=>o.value===keep)?keep:DEFAULT_FONT;
+  if(gd.length){ $('#tFontLoad').style.display='none'; }
+  else setStatus('설치된 격동고딕/격동굴림 폰트를 찾지 못했습니다.');
+  await ensureLocalFont(sel.value); requestRedraw();
+  return gd.length>0;
+}
+// 선택한 굵기의 폰트 파일을 읽어 그 이름 그대로 등록 (처음 쓸 때 한 번만)
+function ensureLocalFont(name){
+  const e=localFonts.get(name);
+  if(!e) return Promise.resolve();
+  if(!e.loaded) e.loaded=(async()=>{
+    const buf=await (await e.data.blob()).arrayBuffer();
+    const face=new FontFace(name,buf); await face.load(); document.fonts.add(face);
+  })().catch(()=>{});
+  return e.loaded;
+}
+$('#tFontLoad').onclick=async()=>{
+  if(!window.queryLocalFonts){ setStatus('이 브라우저는 설치 폰트 읽기를 지원하지 않습니다. Chrome·Edge 최신 버전을 쓰세요.'); return; }
+  if(!(await scanLocalFonts())&&!localFonts.size) setStatus('폰트 사용 권한을 허용해야 격동 폰트 목록을 불러올 수 있습니다.');
+};
+$('#tFont').addEventListener('change',()=>ensureLocalFont($('#tFont').value).then(requestRedraw));
+// 이미 권한을 허용한 적이 있으면 자동으로 불러옴
+(async()=>{
+  try{
+    const st=await navigator.permissions.query({name:'local-fonts'});
+    if(st.state==='granted') scanLocalFonts();
+  }catch(e){}
+})();
+
+/* 툴바 ↔ 선택된 텍스트 */
+const TB={text:'#tText',font:'#tFont',bold:'#tBold',size:'#tSize',color:'#tColor',stroke:'#tStroke',strokeW:'#tStrokeW',opacity:'#tAlpha'};
+function readStyle(){
+  return {
+    text:$(TB.text).value, font:$(TB.font).value, bold:$(TB.bold).checked,
+    size:clamp(+$(TB.size).value||64,4,1000), color:$(TB.color).value, stroke:$(TB.stroke).value,
+    strokeW:clamp(+$(TB.strokeW).value||0,0,100), opacity:clamp(+$(TB.opacity).value,0,1)
+  };
+}
+function loadStyle(tx){
+  $(TB.text).value=tx.text; $(TB.font).value=tx.font; $(TB.bold).checked=tx.bold;
+  $(TB.size).value=tx.size; $(TB.color).value=tx.color; $(TB.stroke).value=tx.stroke;
+  $(TB.strokeW).value=tx.strokeW; $(TB.opacity).value=tx.opacity;
+}
+const selText=()=>state.texts.find(t=>t.id===state.sel);
+function select(id){
+  state.sel=id;
+  const tx=selText(); if(tx) loadStyle(tx);
+  $('#tDel').disabled=!tx;
+  $('#tState').textContent=tx?`선택: ${tx.frame==='start'?'시작':'마지막'} 프레임 텍스트`:'';
+  requestRedraw();
+}
+Object.values(TB).forEach(sel=>{
+  const el=$(sel);
+  el.addEventListener(el.type==='checkbox'||el.tagName==='SELECT'?'change':'input',()=>{
+    const tx=selText(); if(tx) Object.assign(tx,readStyle());
+    const st=readStyle(); document.fonts.load(textFont(st,40),st.text||'가A').then(requestRedraw).catch(()=>{});
+    requestRedraw();
+  });
+});
+$('#tFade').addEventListener('input',e=>{state.fade=clamp(+e.target.value||0,0,50)/100;updateFadeInfo();requestRedraw();});
+$('#frames').addEventListener('input',updateFadeInfo);
+updateFadeInfo();
+function setPlacing(on){
+  state.placing=on;
+  $('#tPlace').setAttribute('aria-pressed',on);
+  editors.forEach(ed=>ed.canvas.classList.toggle('placing',on));
+  if(on) setStatus('시작 또는 마지막 프레임 지도에서 텍스트를 놓을 위치를 클릭하세요. (Esc 취소)');
+  else setStatus('');
+}
+$('#tPlace').onclick=()=>setPlacing(!state.placing);
+function deleteSel(){
+  if(!state.sel) return;
+  state.texts=state.texts.filter(t=>t.id!==state.sel); select(null);
+}
+$('#tDel').onclick=deleteSel;
+document.addEventListener('keydown',e=>{
+  const typing=/INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName||'');
+  if(e.key==='Escape'){ if(state.placing) setPlacing(false); else select(null); }
+  if(!typing&&(e.key==='Delete'||e.key==='Backspace')&&state.sel){ e.preventDefault(); deleteSel(); }
+});
+function addText(frame,v,p){
+  let st=readStyle();
+  if(!st.text.trim()){
+    const t=prompt('넣을 텍스트를 입력하세요','');
+    if(!t||!t.trim()) return;
+    $(TB.text).value=t; st=readStyle();
+  }
+  let x=(p.x+v.left)/v.ws; x-=Math.floor(x);
+  const tx={id:textSeq++, frame, x, y:(p.y+v.top)/v.ws, ...st};
+  state.texts.push(tx);
+  document.fonts.load(textFont(tx,40),tx.text).then(requestRedraw).catch(()=>{});
+  select(tx.id);
+}
+
+/* ============ 편집 조작 ============ */
+for(const ed of editors){
+  const c=ed.canvas; let drag=null;
+  ed.boxes=[];
+  const toCanvas=e=>{const r=c.getBoundingClientRect();return {x:(e.clientX-r.left)*c.width/r.width, y:(e.clientY-r.top)*c.height/r.height};};
+  const inMinimap=p=>{
+    if(!state.minimap.on) return false;
+    const r=minimapRect(c.width,c.height);
+    return p.x>=r.x&&p.x<=r.x+r.w&&p.y>=r.y&&p.y<=r.y+r.h;
+  };
+  // 이 프레임에서 지금 보이는 미니맵 상태
+  const mmCenter=key=>{
+    const v=viewFor(state.keys[key],c.width,c.height), {r,mv}=minimapView(v,key==='start'?0:1);
+    return {r, mv, ws:mv.ws, w:r.w/mv.ws, cx:(mv.left+r.w/2)/mv.ws, cy:(mv.top+r.h/2)/mv.ws};
+  };
+  const hitText=p=>{ for(let i=ed.boxes.length-1;i>=0;i--){const b=ed.boxes[i]; if(p.x>=b.x0&&p.x<=b.x1&&p.y>=b.y0&&p.y<=b.y1) return b.id;} return null; };
+  c.addEventListener('pointerdown',e=>{
+    const p=toCanvas(e), v=viewFor(state.keys[ed.key],c.width,c.height);
+    if(state.placing){ setPlacing(false); addText(ed.key,v,p); return; }
+    if(inMinimap(p)){ drag={type:'mm',x:e.clientX,y:e.clientY}; c.setPointerCapture(e.pointerId); c.classList.add('dragging'); return; }
+    const id=hitText(p);
+    if(id){ select(id); drag={type:'text',x:e.clientX,y:e.clientY}; }
+    else{ if(state.sel) select(null); drag={type:'map',x:e.clientX,y:e.clientY}; }
+    c.setPointerCapture(e.pointerId); c.classList.add('dragging');
+  });
+  c.addEventListener('pointermove',e=>{
+    if(!drag) return;
+    const r=c.getBoundingClientRect(), dx=e.clientX-drag.x, dy=e.clientY-drag.y;
+    if(drag.type==='mm'){
+      const cur=mmCenter(ed.key);
+      cur.cx-=dx*c.width/r.width/cur.ws; cur.cy-=dy*c.height/r.height/cur.ws;
+      state.mm[ed.key]={cx:cur.cx,cy:cur.cy,w:cur.w};
+    }else if(drag.type==='text'){
+      const tx=selText(), v=viewFor(state.keys[ed.key],c.width,c.height);
+      if(tx){ tx.x+=dx*c.width/r.width/v.ws; tx.y+=dy*c.height/r.height/v.ws; }
+    }else{
+      const k=state.keys[ed.key]; k.ox+=dx/r.width; k.oy+=dy/r.height;
+    }
+    drag.x=e.clientX; drag.y=e.clientY; requestRedraw();
+  });
+  const end=()=>{drag=null;c.classList.remove('dragging');};
+  c.addEventListener('pointerup',end); c.addEventListener('pointercancel',end);
+  c.addEventListener('dblclick',e=>{
+    if(inMinimap(toCanvas(e))){ state.mm[ed.key]=null; requestRedraw(); return; }
+    if(hitText(toCanvas(e))){ $('#tText').focus(); $('#tText').select(); return; }
+    const k=state.keys[ed.key];k.ox=0;k.oy=0;requestRedraw();
+  });
+  c.addEventListener('wheel',e=>{
+    e.preventDefault();
+    const p=toCanvas(e);
+    if(inMinimap(p)){
+      // 미니맵 줌: 마우스 아래 지점을 고정한 채 확대/축소
+      const cur=mmCenter(ed.key), mx=p.x-cur.r.x, my=p.y-cur.r.y;
+      const wx=(cur.mv.left+mx)/cur.ws, wy=(cur.mv.top+my)/cur.ws;
+      const w=clamp(cur.w*Math.exp(e.deltaY*0.0015),0.004,1.2), ws=cur.r.w/w;
+      state.mm[ed.key]={cx:wx-(mx-cur.r.w/2)/ws, cy:wy-(my-cur.r.h/2)/ws, w};
+      requestRedraw(); return;
+    }
+    const k=state.keys[ed.key]; k.zoom=clamp(k.zoom-e.deltaY*0.0015,0,17); requestRedraw();
+  },{passive:false});
+  ed.slider.addEventListener('input',()=>{state.keys[ed.key].zoom=+ed.slider.value;requestRedraw();});
+  ed.zin.addEventListener('change',()=>{
+    const v=parseFloat(ed.zin.value);
+    if(Number.isFinite(v)) state.keys[ed.key].zoom=clamp(v,0,17);
+    ed.zin.value=state.keys[ed.key].zoom.toFixed(2); requestRedraw();
+  });
+  ed.zin.addEventListener('keydown',e=>{if(e.key==='Enter')ed.zin.blur();});
+  ed.sec.querySelectorAll('.zbtn').forEach(b=>b.onclick=()=>{
+    const k=state.keys[ed.key]; k.zoom=clamp(k.zoom+ +b.dataset.d,0,17); requestRedraw();
+  });
+}
+
+/* ============ 검색 (OpenStreetMap Nominatim) ============ */
+async function geocode(q,limit){
+  const r=await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=${limit}&accept-language=ko&q=${encodeURIComponent(q)}`);
+  return r.json();
+}
+function fitZoom(item,W,H){
+  const [s,n,w,e]=item.boundingbox.map(Number);
+  const a=project(n,w), b=project(s,e);
+  const bw=Math.max(Math.abs(b.x-a.x),1e-7), bh=Math.max(Math.abs(b.y-a.y),1e-7);
+  return Math.min(Math.log2(0.8*W/(bw*256)),Math.log2(0.8*H/(bh*256)));   // REF 기준 줌
+}
+const resultsEl=$('#results');
+async function search(){
+  const q=$('#q').value.trim(); if(!q) return;
+  setStatus('검색 중…');
+  try{
+    const list=await geocode(q,6);
+    resultsEl.innerHTML='';
+    if(!list.length){ setStatus(`"${q}" 검색 결과가 없습니다. 다른 이름으로 검색해 보세요.`); resultsEl.style.display='none'; return; }
+    setStatus('');
+    if(list.length===1){ chooseFocus(list[0]); return; }
+    list.forEach(item=>{const li=document.createElement('li');li.textContent=item.display_name;li.onclick=()=>chooseFocus(item);resultsEl.appendChild(li);});
+    resultsEl.style.display='block';
+  }catch(e){ setStatus('검색 서버에 연결하지 못했습니다. 인터넷 연결을 확인하세요.'); }
+}
+function chooseFocus(item){
+  resultsEl.style.display='none';
+  state.focus={lat:+item.lat, lon:+item.lon, name:item.display_name, cc:(item.address&&item.address.country_code)||''};
+  $('#focusName').textContent=`초점: ${item.display_name}`;
+  $('#prefix').value=($('#q').value.trim()||'map').replace(/[\\/:*?"<>|\s]+/g,'_')+'_';
+  Object.values(state.keys).forEach(k=>{k.ox=0;k.oy=0;});
+  state.mm={start:null,end:null};
+  if(item.boundingbox){ const [Wr,Hr]=refDims(); state.keys.end.zoom=clamp(fitZoom(item,Wr,Hr),3,15.5); }
+  if(state.keys.start.zoom>=state.keys.end.zoom) state.keys.start.zoom=Math.max(1,state.keys.end.zoom-5);
+  saveInitial();
+  requestRedraw();
+}
+// 검색 직후 상태 저장 → '초기화'로 되돌림
+function saveInitial(){ state.initial=JSON.parse(JSON.stringify(state.keys)); }
+$('#resetAll').onclick=()=>{
+  if(state.initial) state.keys=JSON.parse(JSON.stringify(state.initial));
+  state.mm={start:null,end:null};
+  $('#startQ').value='';
+  state.texts=[]; select(null); setPlacing(false);
+  setStatus('검색했을 때 상태로 되돌렸습니다. (텍스트도 모두 삭제)');
+  requestRedraw();
+};
+$('#syncStart').onclick=()=>{
+  const e=state.keys.end;
+  state.keys.start={zoom:e.zoom, ox:e.ox, oy:e.oy};
+  setStatus('시작 프레임을 마지막 프레임과 같은 위치·줌으로 맞췄습니다.');
+  requestRedraw();
+};
+$('#goSearch').onclick=search;
+$('#q').addEventListener('keydown',e=>{if(e.key==='Enter')search();if(e.key==='Escape')resultsEl.style.display='none';});
+document.addEventListener('click',e=>{if(!e.target.closest('.search'))resultsEl.style.display='none';});
+
+/* 시작 프레임을 다른 장소로 (초점은 그대로 유지) */
+async function moveStart(){
+  const q=$('#startQ').value.trim(); if(!q) return;
+  setStatus('시작 위치 검색 중…');
+  try{
+    const list=await geocode(q,1);
+    if(!list.length){ setStatus(`"${q}" 검색 결과가 없습니다.`); return; }
+    const item=list[0], k=state.keys.start, [Wr,Hr]=refDims();
+    if(item.boundingbox) k.zoom=clamp(fitZoom(item,Wr,Hr),1,Math.max(1,state.keys.end.zoom-1));
+    const f=project(state.focus.lat,state.focus.lon), p=project(+item.lat,+item.lon);
+    let dx=p.x-f.x; dx-=Math.round(dx);
+    const ws=256*2**k.zoom;
+    k.ox=-dx*ws/Wr; k.oy=-(p.y-f.y)*ws/Hr;
+    setStatus(`시작 위치: ${item.display_name}`);
+    requestRedraw();
+  }catch(e){ setStatus('검색 서버에 연결하지 못했습니다.'); }
+}
+$('#startGo').onclick=moveStart;
+$('#startQ').addEventListener('keydown',e=>{if(e.key==='Enter')moveStart();});
+$('#startReset').onclick=()=>{const k=state.keys.start;k.ox=0;k.oy=0;$('#startQ').value='';requestRedraw();};
+
+/* 이동 방향 */
+$('#dirs').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  state.dir=b.dataset.dir;
+  $('#dirs').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  requestRedraw();
+});
+
+$('#paths').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  state.path=b.dataset.path;
+  $('#paths').querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  requestRedraw();
+});
+$('#syncToStart').onclick=()=>{state.keys.start.zoom=state.keys.end.zoom;requestRedraw();};
+$('#syncToEnd').onclick=()=>{state.keys.end.zoom=state.keys.start.zoom;requestRedraw();};
+
+/* ============ 미리보기 재생 ============ */
+let playing=false;
+$('#prevT').addEventListener('input',requestRedraw);
+$('#play').onclick=()=>{
+  playing=!playing; $('#play').textContent=playing?'❚❚':'▶';
+  if(!playing) return;
+  const dur=totalFrames()/30*1000, cur=+$('#prevT').value;
+  const t0=performance.now()-(cur>=1?0:cur*dur);
+  const step=now=>{
+    if(!playing) return;
+    const t=Math.min(1,(now-t0)/dur);
+    $('#prevT').value=t; requestRedraw();
+    if(t<1) requestAnimationFrame(step); else {playing=false;$('#play').textContent='▶';}
+  };
+  requestAnimationFrame(step);
+};
+
+/* ============ 설정 ============ */
+function getFrames(){ return clamp(parseInt($('#frames').value)||30,2,9999); }      // 애니메이션 프레임
+function getHold(){ return clamp(parseInt($('#hold').value)||0,0,9999); }           // 앞 정지 프레임
+function totalFrames(){ return getHold()+getFrames(); }
+// 전체 시퀀스의 i번째(0부터) 프레임 → 애니메이션 진행도 t (정지 구간은 0)
+function frameT(i){ const h=getHold(), n=getFrames(); return i<h?0:n===1?0:(i-h)/(n-1); }
+function updateTotal(){ $('#totalFrames').textContent=`= 총 ${totalFrames()}프레임 (약 ${(totalFrames()/30).toFixed(1)}초)`; }
+$('#frames').addEventListener('input',()=>{updateTotal();requestRedraw();});
+$('#hold').addEventListener('input',()=>{updateTotal();requestRedraw();});
+updateTotal();
+$('#easing').onchange=e=>{state.easing=e.target.value;requestRedraw();};
+$('#res').onchange=e=>{state.shortSide=+e.target.value;};
+$('#bOn').onchange=e=>{state.border.on=e.target.checked;requestRedraw();};
+$('#bColor').oninput=e=>{state.border.color=e.target.value;requestRedraw();};
+$('#bWidth').oninput=e=>{state.border.width=+e.target.value||1;requestRedraw();};
+$('#bAlpha').oninput=e=>{state.border.opacity=clamp(+e.target.value,0,1);requestRedraw();};
+$('#credit').onchange=e=>{state.credit=e.target.checked;requestRedraw();};
+$('#mmOn').onchange=e=>{state.minimap.on=e.target.checked;requestRedraw();};
+$('#mmCorner').onchange=e=>{state.minimap.corner=e.target.value;requestRedraw();};
+$('#mmSize').oninput=e=>{state.minimap.size=clamp(+e.target.value||25,10,60);requestRedraw();};
+
+function showKey(on){ document.querySelectorAll('.gkey').forEach(el=>el.style.display=on?'':'none'); layout(); }
+$('#source').onchange=async e=>{
+  const v=e.target.value;
+  showKey(v==='google');
+  if(v==='google'&&!(await initGoogle())){ e.target.value='esri'; return; }
+  state.source=v; requestRedraw();
+};
+$('#gkey').addEventListener('change',async()=>{
+  if(await initGoogle()){ $('#source').value='google'; state.source='google'; requestRedraw(); }
+});
+async function initGoogle(){
+  const key=$('#gkey').value.trim();
+  if(!key){ setStatus('Google 위성을 쓰려면 Map Tiles API 키를 입력하세요.'); return false; }
+  try{
+    const r=await fetch(`https://tile.googleapis.com/v1/createSession?key=${encodeURIComponent(key)}`,{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mapType:'satellite',language:'ko-KR',region:'KR'})
+    });
+    if(!r.ok) throw new Error(await r.text());
+    const j=await r.json(); state.gKey=key; state.gSession=j.session;
+    setStatus('Google 위성 지도를 사용합니다.'); return true;
+  }catch(err){ setStatus('Google 세션을 만들지 못했습니다. 키와 Map Tiles API 활성화 여부를 확인하세요.'); return false; }
+}
+
+$('#pickDir').onclick=async()=>{
+  if(!window.showDirectoryPicker){ alert('이 브라우저는 폴더 저장을 지원하지 않습니다. Chrome이나 Edge를 사용하세요.'); return; }
+  try{
+    state.folder=await showDirectoryPicker({id:'map-output',mode:'readwrite'});
+    $('#dirName').textContent=`📁 ${state.folder.name}`;
+    // 폴더별로 입력했던 전체 경로 자동 채움
+  }catch(e){}
+};
+function needFolder(){
+  if(state.folder) return false;
+  alert('폴더를 먼저 선택해야 합니다.\n오른쪽 설정의 \'저장 폴더 → 선택\' 버튼을 눌러 주세요.');
+  return true;
+}
+
+/* ============ 출력 ============ */
+function outSize(){
+  const [aw,ah]=ASPECTS[state.aspect], s=state.shortSide;
+  return aw>=ah?[Math.round(s*aw/ah/2)*2,s]:[s,Math.round(s*ah/aw/2)*2];
+}
+function setStatus(t){ $('#status').textContent=t; }
+$('#cancel').onclick=()=>{state.cancel=true;};
+$('#export').onclick=async()=>{
+  if(state.exporting) return;
+  if(needFolder()) return;
+  const n=totalFrames(), hold=getHold(), [W,H]=outSize(), path=makePath();
+  const prefix=($('#prefix').value||'frame_').replace(/[\\/:*?"<>|]/g,'_');
+  const c=document.createElement('canvas'); c.width=W; c.height=H;
+  const ctx=c.getContext('2d');
+  const zip=state.folder?null:new JSZip();
+  const bar=$('#progress'), fill=bar.firstElementChild;
+  sendIni(iniEntries(`${prefix}0001.png`,frameView(path,1,W,H),'sequence',n));
+  await loadTextFonts();
+  state.exporting=true; state.cancel=false;
+  $('#export').disabled=$('#still').disabled=true; bar.style.display='block'; $('#cancel').style.display='inline-block';
+  try{
+    let holdBlob=null;
+    for(let i=0;i<n;i++){
+      if(state.cancel) throw new Error('cancel');
+      const t=frameT(i);
+      let blob;
+      if(i>0&&i<hold&&holdBlob){ blob=holdBlob; setStatus(`시작 정지 프레임 저장 중… ${i+1}/${n}`); }   // 정지 구간은 같은 그림 재사용
+      else{
+        const v=frameView(path,t,W,H);
+        setStatus(`타일 받는 중… ${i+1}/${n}`);
+        await waitFrame(v,t);
+        renderFrame(ctx,v,t);
+        blob=await new Promise(r=>c.toBlob(r,'image/png'));
+        if(i===0) holdBlob=blob;
+      }
+      const name=`${prefix}${String(i+1).padStart(4,'0')}.png`;
+      if(state.folder){
+        const fh=await state.folder.getFileHandle(name,{create:true});
+        const w=await fh.createWritable(); await w.write(blob); await w.close();
+      }else zip.file(name,blob);
+      fill.style.width=((i+1)/n*100)+'%';
+    }
+    // 위치 확인용: 검색 위치에 지름 20px 빨간 점만 있는 투명 PNG (첫/마지막 프레임 기준)
+    const base=prefix.endsWith('_')?prefix:prefix+'_';
+    for(const [tag,tt] of [['reddotstart',0],['reddotend',1]]){
+      const dn=`${base}${tag}.png`, db=await redDotPng(frameView(path,tt,W,H));
+      if(state.folder) await writeToFolder(dn,db); else zip.file(dn,db);
+    }
+    if(zip){
+      setStatus('ZIP 묶는 중…');
+      const z=await zip.generateAsync({type:'blob'});
+      const a=document.createElement('a'); a.href=URL.createObjectURL(z); a.download=`${prefix}sequence.zip`; a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+    }
+    setStatus(`출력 완료: ${n}장 (${W}×${H}) ${state.folder?'→ '+state.folder.name:'→ ZIP'} · transfer.ini → HTML 폴더`);
+  }catch(e){
+    setStatus(e.message==='cancel'?'출력을 중단했습니다.':
+      e.name==='SecurityError'?'타일 이미지를 저장할 수 없습니다. 지도 소스를 바꿔 보세요.':`출력 실패: ${e.message}`);
+  }finally{
+    state.exporting=false; $('#export').disabled=$('#still').disabled=false; $('#cancel').style.display='none';
+    setTimeout(()=>{bar.style.display='none';fill.style.width='0';},1500);
+  }
+};
+
+/* ============ transfer.ini ============ */
+// FirstFile에는 파일 이름만 기록. 전체 경로는 '전송' 버튼(send-transfer.ps1)이 폴더 선택 후 채움
+function focusRelative(v){
+  const f=project(state.focus.lat,state.focus.lon);
+  let x=f.x*v.ws-v.left;
+  x-=Math.round((x-v.W/2)/v.ws)*v.ws;            // 세계 반복(경도 랩) 보정
+  return {x:x/v.W, y:(f.y*v.ws-v.top)/v.H};
+}
+function iniEntries(fileName,v,mode,frames){
+  const first=fileName;
+  const r=focusRelative(v);
+  const credit=state.source==='google'?2:1;   // 지도 소스: Esri 1, Google 2 (출처 표기 여부와 무관)
+  const mm=state.minimap.on?({tl:1,tr:2,bl:3,br:4})[state.minimap.corner]:0;
+  return {
+    Transfer:[['FirstFile',first],['Aspect',state.aspect],['FocusX',r.x.toFixed(6)],['FocusY',r.y.toFixed(6)],
+              ['Credit',credit],['Minimap',mm]],
+    Info:[['Mode',mode],['Width',v.W],['Height',v.H],['Frames',frames],
+          ['FocusName',state.focus.name.replace(/[\r\n]+/g,' ')]]
+  };
+}
+// transfer.ini는 브라우저가 직접 쓸 수 없어서, mapini:// 링크로 HTML 폴더의 write-ini.ps1에 값을 넘겨 기록
+// (register-maptransfer.bat이 등록. 기존 파일은 해당 변수만 덮어씀)
+function sendIni(entries){
+  const items=[];
+  for(const [sec,list] of Object.entries(entries)) for(const [k,v] of list) items.push({s:sec,k,v:String(v)});
+  const bytes=new TextEncoder().encode(JSON.stringify(items));
+  let hex=''; for(const b of bytes) hex+=b.toString(16).padStart(2,'0');
+  const a=document.createElement('a'); a.href='mapini://write?d='+hex; a.click();
+}
+async function writeToFolder(name,blob){
+  const fh=await state.folder.getFileHandle(name,{create:true});
+  const w=await fh.createWritable(); await w.write(blob); await w.close();
+}
+function download(name,blob){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),5000);
+}
+
+// 검색 위치에 지름 20px 빨간 점만 있는 투명 PNG (지도 이미지와 같은 크기)
+async function redDotPng(v){
+  const rp=focusRelative(v), dc=document.createElement('canvas');
+  dc.width=v.W; dc.height=v.H;
+  const g=dc.getContext('2d');
+  g.fillStyle='#ff0000'; g.beginPath(); g.arc(rp.x*v.W,rp.y*v.H,10,0,Math.PI*2); g.fill();
+  return new Promise(r=>dc.toBlob(r,'image/png'));
+}
+
+/* 스틸 출력: 마지막 프레임 한 장 */
+$('#still').onclick=async()=>{
+  if(state.exporting) return;
+  if(needFolder()) return;
+  const [W,H]=outSize(), v=frameView(makePath(),1,W,H);
+  const prefix=($('#prefix').value||'frame_').replace(/[\\/:*?"<>|]/g,'_');
+  const name=`${prefix}still.png`;
+  sendIni(iniEntries(name,v,'still',1));
+  await loadTextFonts();
+  state.exporting=true; $('#export').disabled=$('#still').disabled=true;
+  try{
+    setStatus('스틸 이미지 준비 중…');
+    await waitFrame(v,1);
+    const c=document.createElement('canvas'); c.width=W; c.height=H;
+    renderFrame(c.getContext('2d'),v,1);
+    const blob=await new Promise(r=>c.toBlob(r,'image/png'));
+    await writeToFolder(name,blob);
+    const dn=`${prefix.endsWith('_')?prefix:prefix+'_'}reddotend.png`;
+    await writeToFolder(dn,await redDotPng(v));
+    setStatus(`스틸 저장: ${name} + ${dn} (${W}×${H}) · transfer.ini → HTML 폴더`);
+  }catch(e){ setStatus(`스틸 저장 실패: ${e.message}`); }
+  finally{ state.exporting=false; $('#export').disabled=$('#still').disabled=false; }
+};
+
+/* 전송: maptransfer:// 주소를 열면 Windows가 등록된 maptransfer.exe를 실행
+   (같은 폴더의 register-maptransfer.bat을 한 번 실행해 두어야 함) */
+$('#send').onclick=()=>{
+  const a=document.createElement('a'); a.href='maptransfer://run'; a.click();
+  setStatus('폴더 선택 창에서 방금 출력한 폴더를 고르면 ini에 경로를 기록하고 maptransfer.exe를 실행합니다. (창이 안 뜨면 register-maptransfer.bat을 다시 실행)');
+};
+
+/* ============ 시작 ============ */
+saveInitial();
+document.fonts.addEventListener('loadingdone',requestRedraw);
+syncRatio();
+$('#focusName').textContent='초점: 서울 (기본값)';
+new ResizeObserver(layout).observe(document.querySelector('.stage'));
+layout();
+loadBorders();
+loadLand();
+</script>
+</body>
+</html>
